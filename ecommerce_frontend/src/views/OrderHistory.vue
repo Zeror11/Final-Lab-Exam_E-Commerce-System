@@ -1,92 +1,152 @@
 <template>
   <div class="container mt-4">
-    <h2>Order History</h2>
+    <h2 class="mb-3">📦 Order History</h2>
 
-    <!-- Loading Spinner -->
-    <div v-if="loading" class="d-flex justify-content-center my-5">
-      <div class="spinner-border" role="status">
-        <span class="visually-hidden">Loading...</span>
-      </div>
-    </div>
-
-    <!-- No Orders Message -->
+    <div v-if="loading" class="alert alert-info">Loading order history...</div>
     <div v-else-if="orders.length === 0">
-      <p class="text-center">No past orders found.</p>
+      <div class="alert alert-warning">No orders found.</div>
     </div>
-
-    <!-- Order List -->
     <div v-else>
-      <div v-for="order in orders" :key="order.id" class="card mb-3 shadow-sm">
-        <div class="card-header bg-primary text-white">
-          <strong>Order #{{ order.id }}</strong> — {{ formatDate(order.date_ordered) }}
-        </div>
-        <ul class="list-group list-group-flush">
-          <li
-            v-for="item in order.items"
-            :key="item.id"
-            class="list-group-item d-flex justify-content-between align-items-center"
+      <div v-for="order in paginatedOrders" :key="order.id" class="order-card mb-4">
+        <h4>Order ID: <span class="text-primary fw-semibold">#{{ order.id }}</span></h4>
+        <p>Status: <span class="status-complete">Complete Order</span></p>
+        
+        <table class="table table-striped mt-3">
+          <thead class="table-light">
+            <tr>
+              <th>Product</th>
+              <th>Qty</th>
+              <th>Price</th>
+              <th>Subtotal</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="item in order.items" :key="item.product">
+              <td>{{ item.product_name }}</td>
+              <td>{{ item.quantity }}</td>
+              <td>₱{{ item.price }}</td>
+              <td>₱{{ item.quantity * item.price }}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p class="fw-bold fs-5">Total: ₱{{ getOrderTotal(order) }}</p>
+      </div>
+
+      <div class="d-flex justify-content-between align-items-center mt-3">
+        <!-- Pagination controls -->
+        <div>
+          <button
+            class="btn btn-outline-secondary"
+            :disabled="currentPage === 1"
+            @click="currentPage--"
           >
-            <div>
-              <strong>{{ item.product_name }}</strong> — ₱{{ item.price }} × {{ item.quantity }}
-            </div>
-            <strong>₱{{ (item.price * item.quantity).toFixed(2) }}</strong>
-          </li>
-          <li class="list-group-item text-end fw-bold">
-            <span>Total:</span> ₱{{ order.total.toFixed(2) }}
-          </li>
-        </ul>
+            Previous
+          </button>
+          <span class="mx-3">{{ currentPage }} / {{ pageCount }}</span>
+          <button
+            class="btn btn-outline-secondary"
+            :disabled="currentPage === pageCount"
+            @click="currentPage++"
+          >
+            Next
+          </button>
+        </div>
       </div>
     </div>
+
+    <router-link to="/" class="btn btn-primary mt-3">
+      🛍 Go Back to Catalog
+    </router-link>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { useAuthStore } from '@/store/auth'
 
-const orders = ref([])
-const loading = ref(true)
 const authStore = useAuthStore()
+const orders = ref([])  // Store all orders
+const loading = ref(true)
+const currentPage = ref(1)
+const itemsPerPage = 5
 
-onMounted(async () => {
+// Fetch all orders for the current user
+const fetchOrderHistory = async () => {
   try {
-    const res = await axios.get('http://localhost:8000/api/orders/history/', {
+    const res = await axios.get(`http://localhost:8000/api/orders/`, {
       headers: {
         Authorization: `Bearer ${authStore.token}`
       }
     })
 
-    orders.value = res.data
+    // Filter orders by the logged-in user
+    const userOrders = res.data.filter(o => o.customer === authStore.user.id)
+    orders.value = userOrders
   } catch (err) {
-    console.error('Failed to load order history:', err)
+    console.error('Failed to fetch order history:', err)
   } finally {
     loading.value = false
   }
+}
+
+// Calculate the total price for each order
+const getOrderTotal = (order) => {
+  return order.items.reduce((acc, item) => acc + item.price * item.quantity, 0)
+}
+
+// Pagination logic
+const pageCount = computed(() => {
+  if (!orders.value || orders.value.length === 0) return 1
+  return Math.ceil(orders.value.length / itemsPerPage)
 })
 
-function formatDate(dateStr) {
-  const date = new Date(dateStr)
-  return date.toLocaleDateString() + ' ' + date.toLocaleTimeString()
-}
+const paginatedOrders = computed(() => {
+  if (!orders.value) return []
+  const start = (currentPage.value - 1) * itemsPerPage
+  const end = start + itemsPerPage
+  return orders.value.slice(start, end)
+})
+
+onMounted(fetchOrderHistory)
 </script>
 
 <style scoped>
-.card {
-  border: none;
+.order-card {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 16px;
+  background-color: #f9f9f9;
 }
-.card-header {
-  font-size: 1.1rem;
-  background-color: #007bff;
+
+.order-card h4 {
+  font-size: 1.2rem;
 }
-.card-header strong {
+
+.order-card table {
+  width: 100%;
+}
+
+.order-card table th,
+.order-card table td {
+  text-align: center;
+}
+
+.order-card table th {
+  background-color: #f1f1f1;
+}
+
+.order-card .btn-outline-secondary {
+  margin-top: 5px;
+}
+
+/* Highlight the Complete Order status */
+.status-complete {
+  background-color: #28a745;  /* Green background */
   color: white;
-}
-.list-group-item {
-  font-size: 0.9rem;
-}
-.spinner-border {
-  width: 3rem;
-  height: 3rem;
+  padding: 4px 8px;
+  border-radius: 5px;
+  font-weight: bold;
 }
 </style>
