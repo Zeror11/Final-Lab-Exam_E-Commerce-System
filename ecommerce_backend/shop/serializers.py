@@ -1,6 +1,8 @@
 from rest_framework import serializers
 from .models import User, Product, Order, OrderItem, CheckoutTransaction
 
+# ------------------- USER --------------------------
+
 class UserSerializer(serializers.ModelSerializer):
     role = serializers.SerializerMethodField()
 
@@ -10,32 +12,41 @@ class UserSerializer(serializers.ModelSerializer):
         extra_kwargs = {'password': {'write_only': True}}
 
     def create(self, validated_data):
-        user = User.objects.create_user(**validated_data)
-        return user
+        return User.objects.create_user(**validated_data)
 
     def get_role(self, obj):
         return 'employee' if obj.is_employee else 'customer'
 
+# ------------------- PRODUCT -----------------------
+
 class ProductSerializer(serializers.ModelSerializer):
+    image = serializers.ImageField(required=False)  # Make image optional for PATCH
+
     class Meta:
         model = Product
         fields = '__all__'
 
-# READ serializer for OrderItem
+# ------------------- ORDER ITEM --------------------
+
+# READ: Include product name and price
 class OrderItemReadSerializer(serializers.ModelSerializer):
+    product_name = serializers.ReadOnlyField(source='product.name')
+    price = serializers.ReadOnlyField(source='product.price')
     product = ProductSerializer()
 
     class Meta:
         model = OrderItem
-        fields = ['id', 'product', 'quantity']
+        fields = ['id', 'product', 'product_name', 'price', 'quantity']
 
-# WRITE serializer for OrderItem
+# WRITE: For incoming order creation
 class OrderItemWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrderItem
         fields = ['product', 'quantity']
 
-# READ serializer for Order
+# ------------------- ORDER -------------------------
+
+# READ: Include nested item details
 class OrderReadSerializer(serializers.ModelSerializer):
     items = OrderItemReadSerializer(many=True, read_only=True)
 
@@ -43,7 +54,7 @@ class OrderReadSerializer(serializers.ModelSerializer):
         model = Order
         fields = ['id', 'customer', 'date_ordered', 'items']
 
-# WRITE serializer for Order
+# WRITE: Create with nested items
 class OrderWriteSerializer(serializers.ModelSerializer):
     items = OrderItemWriteSerializer(many=True)
 
@@ -57,6 +68,8 @@ class OrderWriteSerializer(serializers.ModelSerializer):
         for item_data in items_data:
             OrderItem.objects.create(order=order, **item_data)
         return order
+
+# ------------------- CHECKOUT ----------------------
 
 class CheckoutSerializer(serializers.ModelSerializer):
     order_customer_username = serializers.CharField(source='order.customer.username', read_only=True)
@@ -74,3 +87,24 @@ class CheckoutSerializer(serializers.ModelSerializer):
         ])
         validated_data['total_amount'] = total
         return super().create(validated_data)
+
+# ------------------- ORDER HISTORY -----------------
+
+class OrderItemHistorySerializer(serializers.ModelSerializer):
+    product_name = serializers.ReadOnlyField(source='product.name')
+    price = serializers.ReadOnlyField(source='product.price')
+
+    class Meta:
+        model = OrderItem
+        fields = ['id', 'product_name', 'price', 'quantity']
+
+class OrderHistorySerializer(serializers.ModelSerializer):
+    items = OrderItemHistorySerializer(many=True, read_only=True)
+    total = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Order
+        fields = ['id', 'date_ordered', 'items', 'total']
+
+    def get_total(self, obj):
+        return sum(item.product.price * item.quantity for item in obj.items.all())
